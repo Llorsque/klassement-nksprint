@@ -124,3 +124,5 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text);
   .tiles-grid { grid-template-columns: 1fr; }
   .tile__time { font-size: 20px; }
 }
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}

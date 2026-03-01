@@ -4,7 +4,7 @@
 // ════════════════════════════════════════════════════════
 const EVENT_ID = "2026_NED_0003";
 const LIVE_BASE = "https://liveresults.schaatsen.nl/events/" + EVENT_ID + "/competition";
-const POLL_MS = 10_000;
+const POLL_MS = 2_000;
 const DISTANCES = {
   v: [
     { key:"d1_500",  label:"1e 500m",  meters:500,  divisor:1 },
@@ -85,13 +85,16 @@ function medal(r){return{1:"🥇",2:"🥈",3:"🥉"}[r]??""}
 function podCls(r){return r>=1&&r<=3?` row--${["","gold","silver","bronze"][r]}`:"";}
 
 // ── STATE ───────────────────────────────────────────────
-const state={gender:"v",view:"klassement",distKey:null,h2h:{riderA:null,riderB:null,target:null,calcDist:null}};
+const state={gender:"v",view:"klassement",distKey:null,h2h:{riderA:null,riderB:null,target:null,calcDist:null},pollDist:"all"};
 const inactive={v:new Set(),m:new Set()};
 function loadInactive(){try{const d=JSON.parse(localStorage.getItem("nk_sprint_inactive")??"{}");if(d.v)inactive.v=new Set(d.v);if(d.m)inactive.m=new Set(d.m)}catch(_){}}
 function saveInactive(){try{localStorage.setItem("nk_sprint_inactive",JSON.stringify({v:[...inactive.v],m:[...inactive.m]}))}catch(_){}}
 function isActive(name){return!inactive[state.gender].has(name)}
 const dataCache={v:null,m:null};const lastFetch={v:null,m:null};
 let standings=null,dataSource="waiting";
+const frozenStandings={v:null,m:null};
+function standingsHash(s){if(!s?.ranked)return"";return s.ranked.map(a=>`${a.name}:${a.currentPoints}:${a.completedCount}`).join("|")}
+function freezeStandings(){frozenStandings[state.gender]=JSON.parse(JSON.stringify(standings))}
 function getDists(){return DISTANCES[state.gender]}
 
 // ── FETCH ───────────────────────────────────────────────
@@ -106,17 +109,18 @@ function extractTimes(text,parts){
   for(const p of parts){const k=norm(p.name);if(!k)continue;let s=0;while(true){const i=nt.indexOf(k,s);if(i===-1)break;const w=nt.slice(i,Math.min(nt.length,i+300));re.lastIndex=0;const m=re.exec(w);if(m){const raw=m[1].replace(",",".");if(parseTime(raw)!=null){results.set(k,raw);break}}s=i+k.length}}
   return results;
 }
-async function fetchGender(g){
+async function fetchGender(g,onlyDist){
   const ds=DISTANCES[g],cs=COMP_IDS[g],ps=PARTICIPANTS[g];
   if(!dataCache[g])dataCache[g]={};
-  for(const d of ds){
+  const toFetch=onlyDist?ds.filter(d=>d.key===onlyDist):ds;
+  for(const d of toFetch){
     const t=await fetchPageText(cs[d.key]);
     if(!t){await sleep(300);continue}
     const tm=extractTimes(t,ps),results=[];
     for(const p of ps){const v=tm.get(norm(p.name));if(v){const sec=parseTime(v);if(sec!=null)results.push({name:p.name,time:v,seconds:trunc2(sec)})}}
     if(results.length>0)dataCache[g][d.key]=results;
     console.log(`[NK] ${g} ${d.label}: ${results.length}`);
-    await sleep(400);
+    if(!onlyDist)await sleep(400);
   }
   lastFetch[g]=new Date();
 }
@@ -161,7 +165,7 @@ function neededTime(athlete,distKey,targetPts){
 
 // ── DOM ─────────────────────────────────────────────────
 const el={};
-function cacheEls(){for(const id of["statusBadge","statusText","genderTabs","navButtons","debugBtn","contentArea","overlay","menuBtn","sidebar","mobileMenu","mobileNav"])el[id]=document.getElementById(id)}
+function cacheEls(){for(const id of["statusBadge","statusText","genderTabs","navButtons","debugBtn","contentArea","overlay","menuBtn","sidebar","mobileMenu","mobileNav","pollSelect"])el[id]=document.getElementById(id)}
 function setStatus(){if(!el.statusBadge)return;el.statusBadge.className=`badge badge--${dataSource}`;el.statusText.textContent=dataSource==="live"?"Live":"Laden..."}
 
 // ── RENDER ──────────────────────────────────────────────
@@ -184,9 +188,13 @@ function render(){
 // ── KLASSEMENT ──────────────────────────────────────────
 function renderKlassement(){
   const ds=getDists();if(!standings)return;
+  if(!frozenStandings[state.gender])freezeStandings();
+  const fs=frozenStandings[state.gender];
+  const hasUpdate=standingsHash(standings)!==standingsHash(fs);
+  const show=fs;
   const ndKey=state.distKey??ds[ds.length-1]?.key;
   const nd=ds.find(d=>d.key===ndKey)??ds[ds.length-1];
-  const active=standings.all.filter(a=>a.active).sort((a,b)=>{if(a.rank!=null&&b.rank!=null)return a.rank-b.rank;if(a.rank!=null)return-1;if(b.rank!=null)return 1;return 0});
+  const active=show.all.filter(a=>a.active).sort((a,b)=>{if(a.rank!=null&&b.rank!=null)return a.rank-b.rank;if(a.rank!=null)return-1;if(b.rank!=null)return 1;return 0});
   const hdr=ds.map(d=>`<th>${esc(d.label)}</th>`).join("");
   const rows=active.map(a=>{
     const cells=ds.map(d=>{const t=a.seconds[d.key],dr=a.distRanks[d.key];const m=dr?`<span class="dist-medal">${medal(dr)}</span>`:"";return Number.isFinite(t)?`<td class="mono">${fmtTime(t)}${m}</td>`:`<td class="mono" style="color:var(--text-muted)">—</td>`}).join("");
@@ -195,8 +203,10 @@ function renderKlassement(){
     return`<tr class="${podCls(a.rank)}"><td>${a.rank?`<strong>${a.rank}</strong>`:"—"}</td><td><span class="athlete" data-name="${esc(a.name)}">${esc(a.name)}</span></td>${cells}<td class="mono"${dim}><strong>${fmtPts(pts)}</strong></td><td>${dStr}</td></tr>`;
   }).join("");
   const opts=ds.map(d=>`<option value="${d.key}" ${d.key===ndKey?"selected":""}>${esc(d.label)}</option>`).join("");
-  const cc=ds.filter(d=>standings.all.some(a=>a.times[d.key])).length;
+  const cc=ds.filter(d=>show.all.some(a=>a.times[d.key])).length;
+  const updateBtn=hasUpdate?`<button id="updateKlass" style="background:var(--accent);color:#fff;border:none;padding:6px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;animation:pulse 1.5s infinite">🔄 Update klassement</button>`:"";
   el.contentArea.innerHTML=`
+    ${hasUpdate?`<div style="background:rgba(99,102,241,.1);border:1px solid var(--accent);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><span style="font-size:13px;font-weight:600">Nieuwe resultaten beschikbaar</span>${updateBtn}</div>`:""}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div><h2 style="font-size:18px;font-weight:800;margin-bottom:2px">Sprint Klassement</h2><span style="font-size:12px;color:var(--text-dim)">Na ${cc}/${ds.length} afstanden${lastFetch[state.gender]?` · ${lastFetch[state.gender].toLocaleTimeString("nl-NL")}`:""}</span></div>
       <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:var(--text-dim)">Δ op:</span><select id="ndSel" class="h2h-sel" style="font-size:12px">${opts}</select></div>
@@ -204,6 +214,7 @@ function renderKlassement(){
     <div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Naam</th>${hdr}<th>Punten</th><th>Δ</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="info-box"><strong>Sortering:</strong> meeste afstanden gereden → laagste punten. Punten = tijd(s) ÷ afstandsfactor (500m=1, 1000m=2), afgekapt op 3 decimalen. Sprintvierkamp: 1e 500m – 1e 1000m – 2e 500m – 2e 1000m.</div>`;
   document.getElementById("ndSel")?.addEventListener("change",e=>{state.distKey=e.target.value;render()});
+  document.getElementById("updateKlass")?.addEventListener("click",()=>{freezeStandings();render()});
 }
 
 // ── AFSTAND + SIDEBAR ───────────────────────────────────
@@ -392,7 +403,15 @@ function openPopup(name){
 
 // ── EVENTS ──────────────────────────────────────────────
 function bindEvents(){
-  el.genderTabs?.addEventListener("click",async e=>{const b=e.target.closest(".tab");if(!b?.dataset.gender)return;state.gender=b.dataset.gender;render();if(!dataCache[state.gender]){await fetchGender(state.gender);render()}});
+  function fillPollSelect(){
+    if(!el.pollSelect)return;
+    const ds=getDists();
+    el.pollSelect.innerHTML=`<option value="all">Alle</option>`+ds.map(d=>`<option value="${d.key}"${state.pollDist===d.key?" selected":""}>${d.label}</option>`).join("");
+    el.pollSelect.value=state.pollDist;
+  }
+  fillPollSelect();
+  el.pollSelect?.addEventListener("change",e=>{state.pollDist=e.target.value});
+  el.genderTabs?.addEventListener("click",async e=>{const b=e.target.closest(".tab");if(!b?.dataset.gender)return;state.gender=b.dataset.gender;fillPollSelect();render();if(!dataCache[state.gender]){await fetchGender(state.gender);render()}});
 
   function navClick(e){const b=e.target.closest(".nav-btn");if(!b?.dataset.view)return;state.view=b.dataset.view;el.mobileMenu.hidden=true;render()}
   el.navButtons?.addEventListener("click",navClick);
@@ -409,7 +428,7 @@ function bindEvents(){
 // ── POLL ────────────────────────────────────────────────
 let pollT=null,lastDataHash="";
 function dataHash(){try{return JSON.stringify(dataCache[state.gender]??"").length.toString()}catch(_){return""}}
-function startPoll(){if(pollT)clearInterval(pollT);pollT=setInterval(async()=>{try{lastDataHash=dataHash();await fetchGender(state.gender);if(dataHash()!==lastDataHash)render()}catch(e){console.warn("[NK] poll:",e)}},POLL_MS)}
+function startPoll(){if(pollT)clearInterval(pollT);pollT=setInterval(async()=>{try{lastDataHash=dataHash();const dk=state.pollDist==="all"?undefined:state.pollDist;await fetchGender(state.gender,dk);if(dataHash()!==lastDataHash&&state.view!=="klassement")render()}catch(e){console.warn("[NK] poll:",e)}},POLL_MS)}
 
 // ── BOOT ────────────────────────────────────────────────
 async function boot(){
