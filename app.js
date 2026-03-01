@@ -107,9 +107,18 @@ function extractTimes(text,parts){
   return results;
 }
 async function fetchGender(g){
-  const ds=DISTANCES[g],cs=COMP_IDS[g],ps=PARTICIPANTS[g],all={};
-  for(const d of ds){const t=await fetchPageText(cs[d.key]);all[d.key]=[];if(!t){await sleep(300);continue}const tm=extractTimes(t,ps);for(const p of ps){const v=tm.get(norm(p.name));if(v){const sec=parseTime(v);if(sec!=null)all[d.key].push({name:p.name,time:v,seconds:trunc2(sec)})}}console.log(`[NK] ${g} ${d.label}: ${all[d.key].length}`);await sleep(400)}
-  dataCache[g]=all;lastFetch[g]=new Date();
+  const ds=DISTANCES[g],cs=COMP_IDS[g],ps=PARTICIPANTS[g];
+  if(!dataCache[g])dataCache[g]={};
+  for(const d of ds){
+    const t=await fetchPageText(cs[d.key]);
+    if(!t){await sleep(300);continue}
+    const tm=extractTimes(t,ps),results=[];
+    for(const p of ps){const v=tm.get(norm(p.name));if(v){const sec=parseTime(v);if(sec!=null)results.push({name:p.name,time:v,seconds:trunc2(sec)})}}
+    if(results.length>0)dataCache[g][d.key]=results;
+    console.log(`[NK] ${g} ${d.label}: ${results.length}`);
+    await sleep(400);
+  }
+  lastFetch[g]=new Date();
 }
 
 // ── COMPUTE ─────────────────────────────────────────────
@@ -398,8 +407,9 @@ function bindEvents(){
 }
 
 // ── POLL ────────────────────────────────────────────────
-let pollT=null;
-function startPoll(){if(pollT)clearInterval(pollT);pollT=setInterval(async()=>{try{await fetchGender(state.gender);render()}catch(e){console.warn("[NK] poll:",e)}},POLL_MS)}
+let pollT=null,lastDataHash="";
+function dataHash(){try{return JSON.stringify(dataCache[state.gender]??"").length.toString()}catch(_){return""}}
+function startPoll(){if(pollT)clearInterval(pollT);pollT=setInterval(async()=>{try{lastDataHash=dataHash();await fetchGender(state.gender);if(dataHash()!==lastDataHash)render()}catch(e){console.warn("[NK] poll:",e)}},POLL_MS)}
 
 // ── BOOT ────────────────────────────────────────────────
 async function boot(){
