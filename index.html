@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NK Sprint 2026</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__left">
+      <button id="menuBtn" class="menu-btn" aria-label="Menu">☰</button>
+      <span class="topbar__title">NK Sprint 2026</span>
+      <span id="statusBadge" class="badge badge--waiting">
+        <span class="badge__dot"></span>
+        <span id="statusText">Laden...</span>
+      </span>
+    </div>
+    <div id="genderTabs" class="tab-row">
+      <button class="tab active" data-gender="v">Vrouwen</button>
+      <button class="tab" data-gender="m">Mannen</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav id="sidebar" class="sidebar">
+      <div id="navButtons" class="nav-group"></div>
+      <div class="sidebar__footer">
+        <button id="debugBtn" class="btn btn--ghost">🔍 Debug</button>
+      </div>
+    </nav>
+    <main class="main">
+      <div id="contentArea" class="content"></div>
+    </main>
+  </div>
+
+  <!-- Mobile dropdown menu -->
+  <div id="mobileMenu" class="mobile-menu" hidden>
+    <div id="mobileNav" class="mobile-nav"></div>
+  </div>
+
+  <div id="overlay" class="overlay" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
